@@ -1,0 +1,25 @@
+<RCC>
+    <qresource prefix="/">
+        <file>Shader/Blur.frag.glsl</file>
+        <file>Shader/Blur.vert.glsl</file>
+        <file>Shader/Default.frag.glsl</file>
+        <file>Shader/Default.vert.glsl</file>
+        <file>Shader/DefaultDepth.frag.glsl</file>
+        <file>Shader/DefaultLight.frag.glsl</file>
+        <file>Shader/DefaultLight.vert.glsl</file>
+        <file>Shader/DefaultLightShadow.frag.glsl</file>
+        <file>Shader/DefaultLightShadow.vert.glsl</file>
+        <file>Shader/GUI.frag.glsl</file>
+        <file>Shader/GUI.vert.glsl</file>
+        <file>Shader/Mesh40.frag.glsl</file>
+        <file>Shader/Mesh40.vert.glsl</file>
+        <file>Shader/NiceGrid.frag.glsl</file>
+        <file>Shader/NiceGrid.vert.glsl</file>
+        <file>Shader/Object.frag.glsl</file>
+        <file>Shader/Object.vert.glsl</file>
+        <file>Shader/ObjectDepth.frag.glsl</file>
+        <file>Shader/ObjectDepth.vert.glsl</file>
+        <file>Shader/ObjectLines.frag.glsl</file>
+        <file>Shader/ObjectLines.vert.glsl</file>
+    </qresource> 
+</RCC>
