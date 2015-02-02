@@ -915,3 +915,37 @@ void normalize(std::map<uint, MeshVertex> &vertices)
 		vert.pos = newPos;
 	}
 }
+
+
+bool rayIntersectsTriangle(const vec3 &p, const vec3 &d, const vec3 &v0, const vec3 &v1, const vec3 &v2)
+{
+	vec3 e1 = v1 - v0;
+	vec3 e2 = v2 - v0;
+
+	vec3 h = cross(d, e2);
+
+	float a = dot(e1, h);
+	if (a > -0.00001f && a < 0.00001f)
+		return(false);
+
+	float f = 1.0f / a;
+
+	vec3 s = p - v0;
+	float u = f * dot(s, h);
+
+	if (u < 0.0f || u > 1.0f)
+		return(false);
+
+	
+	vec3 q = cross(s, e1);
+	float v = f * dot(d, q);
+
+	if (v < 0.0f || u + v > 1.0f)
+		return(false);
+
+	float t = dot(e2, q)*f;
+	if (t < 0.0f)
+		return(false);
+
+	return(true);
+}

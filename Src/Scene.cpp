@@ -8,18 +8,24 @@
 #include "Object.h"
 #include "Picking.h"
 #include "HDRLoader.h"
+#include "Mesh.h"
+
+#include <iostream>
+#include <iomanip>
 
 Scene::Scene(CameraManager *camManager)
 : m_cameraManager(camManager),
   m_vboMesh(NULL),
   m_sampler(NULL),
-  m_numSamples(32),
-  m_numBands(5)
+  m_numSamples(16),
+  m_numBands(2)
 {
+	m_vboSkyDome = Mesh::sphere(10.0, 10);
+
     init();   
 	initLightProbe("Data/LightProbes/uffizi_probe.hdr");
 
-	loadObjData("Data/Objs/bunny.obj", m_faces, m_vertices, true);
+	loadObjData("Data/Objs/head.obj", m_faces, m_vertices, true);
 
 	generateSamples();
 	precomputeSHFunctions();
@@ -31,6 +37,21 @@ Scene::Scene(CameraManager *camManager)
 
 Scene::~Scene()
 {
+}
+
+void Scene::initShaders()
+{
+	m_shaderMesh = new Shader("Shader/Mesh40.vert.glsl", "Shader/Mesh40.frag.glsl");
+    m_shaderMesh->bindAttribLocations();
+
+	m_shaderSkyDome = new Shader("Shader/SkyDome40.vert.glsl", "Shader/SkyDome40.frag.glsl");
+    m_shaderSkyDome->bindAttribLocations();
+
+    m_shaderNormal = new Shader("Shader/DefaultLight.vert.glsl", "Shader/DefaultLight.frag.glsl");
+    m_shaderNormal->bindAttribLocations();
+
+    m_shaderDepth = new Shader("Shader/Default.vert.glsl", "Shader/DefaultDepth.frag.glsl");
+    m_shaderDepth->bindAttribLocations();
 }
 
 void Scene::initLightProbe(const char* fileName)
@@ -50,7 +71,8 @@ void Scene::initLightProbe(const char* fileName)
 	{
 		for(int x=0; x < m_lightProbeWidth; ++x)
 		{
-			uint idx = 4 * (y * m_lightProbeWidth + x);
+			// flip y coordinate
+			uint idx = 4 * ((m_lightProbeHeight-1-y) * m_lightProbeWidth + x);
 			uint tmpIdx = 3 * (y * m_lightProbeWidth + x);
 
 			data[idx]   = m_lightProbe[tmpIdx];
@@ -66,6 +88,9 @@ void Scene::initLightProbe(const char* fileName)
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, m_lightProbeWidth, m_lightProbeHeight, 0, GL_RGBA, GL_FLOAT, data);     
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); 
+
+
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 16.0f);   
 
     delete[] data;
 }
@@ -177,6 +202,7 @@ void Scene::renderWorld(const Transform &trans, const GlobalObjectParam &param)
     glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
 
     m_light->render(trans, param);
+	renderSkyDome(trans, param);
 
 	glPopClientAttrib();
     glPopAttrib();
@@ -234,6 +260,40 @@ void Scene::renderMesh(const Transform &trans, const GlobalObjectParam &param)
 	renderTexture(m_texLightProbe, 10, 10, 300, 300);
 }
 
+void Scene::renderSkyDome(const Transform &trans, const GlobalObjectParam &param)
+{
+    mat4 projection = trans.projection;
+    mat4 view = trans.view;
+    mat4 model = mat4::identitiy();
+
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
+
+	glDisable(GL_CULL_FACE);
+
+    m_shaderSkyDome->bind();
+        m_shaderSkyDome->set3f("lightPos", param.lightPos);
+		m_shaderSkyDome->set3f("camPos", param.camPos);
+
+        m_shaderSkyDome->setMatrix("matProjection", projection, GL_TRUE);
+        m_shaderSkyDome->setMatrix("matView", view, GL_TRUE);
+        m_shaderSkyDome->setMatrix("matModel", model, GL_TRUE); 
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, m_texLightProbe);
+		m_shaderSkyDome->seti("texLightProbe", 0);
+        
+        m_vboSkyDome->render();    
+
+    m_shaderSkyDome->release();
+
+	glEnable(GL_CULL_FACE);
+	glPopClientAttrib();
+    glPopAttrib();
+
+	renderTexture(m_texLightProbe, 10, 10, 300, 300);
+}
+
 void Scene::renderDebug(const Transform &trans, const GlobalObjectParam &param)
 {
     mat4 projection = trans.projection;
@@ -268,17 +328,6 @@ void Scene::update(float delta)
     m_light->update(delta);
 }
 
-void Scene::initShaders()
-{
-	m_shaderMesh = new Shader("Shader/Mesh40.vert.glsl", "Shader/Mesh40.frag.glsl");
-    m_shaderMesh->bindAttribLocations();
-
-    m_shaderNormal = new Shader("Shader/DefaultLight.vert.glsl", "Shader/DefaultLight.frag.glsl");
-    m_shaderNormal->bindAttribLocations();
-
-    m_shaderDepth = new Shader("Shader/Default.vert.glsl", "Shader/DefaultDepth.frag.glsl");
-    m_shaderDepth->bindAttribLocations();
-}
 
 void Scene::generateSamples()
 {
@@ -346,7 +395,7 @@ void Scene::lightProbeAccess(vec3 &color, vec3 direction)
 
 	int pixel_coord [2];
 	pixel_coord[0] = tex_coord[0] * m_lightProbeWidth;
-	pixel_coord[1] = tex_coord[1] * m_lightProbeHeight;
+	pixel_coord[1] = (1.0-tex_coord[1]) * m_lightProbeHeight;
 	int idx = 3 * (pixel_coord[1] * m_lightProbeWidth + pixel_coord[0]);
 
 	color.x = m_lightProbe[idx];
@@ -391,6 +440,9 @@ void Scene::projectLightFunction()
 
 void Scene::projectUnshadowed()
 {
+	std::cout << "Scene::projectUnshadowed(): ";
+	std::cout << std::setprecision(2) << std::fixed;
+
 	m_transCoeffs.clear();
 
 	for (int i = 0; i < m_vertices.size(); i++)
@@ -403,6 +455,7 @@ void Scene::projectUnshadowed()
 		m_transCoeffs.push_back(coeffs);
 	}
 	
+
 	int idx=0;
 	for (std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert, ++idx)
 	{
@@ -427,6 +480,9 @@ void Scene::projectUnshadowed()
 				coeffs[k].z += (albedo.z * sh_function * cosine_term);
 			}
 		}
+
+		float p = float(idx) / float(m_vertices.size()-1) * 100.0f;
+		std::cout << p << "%" << "\r";
 	}
 
 	float weight = 4.0f * math_pi;
@@ -442,4 +498,95 @@ void Scene::projectUnshadowed()
 			coeffs[j].z *= scale;
 		}
 	}
+}
+
+void Scene::projectShadowed()
+{
+	
+	std::cout << std::setprecision(2) << std::fixed;
+
+	m_transCoeffs.clear();
+
+	for (int i = 0; i < m_vertices.size(); i++)
+	{	
+		std::vector<vec3> coeffs;
+		for (int j = 0; j < m_numBands * m_numBands; j++)
+		{
+			coeffs.push_back(vec3(0.0f, 0.0f, 0.0f));
+		}
+		m_transCoeffs.push_back(coeffs);
+	}
+	
+	int idx=0;
+	for (std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert, ++idx)
+	{
+		MeshVertex &vert = iterVert->second;
+		vec3 n = normalize(vert.normal);
+		vec3 albedo = vec3(0.5f, 0.5f, 0.5f);
+		
+		std::vector<vec3> &coeffs = m_transCoeffs[idx];
+
+		for (int j = 0; j < m_sampler->number_of_samples; j++)
+		{
+			Sample& sample = m_sampler->samples[j];
+
+			if(visibility(vert.id, sample.cartesian_coord))
+			{
+				float cosine_term = max(0.0f, dot(n, sample.cartesian_coord));
+
+				for (int k = 0; k < m_numBands * m_numBands; k++)
+				{
+					float sh_function = sample.sh_functions[k];
+
+					coeffs[k].x += (albedo.x * sh_function * cosine_term);
+					coeffs[k].y += (albedo.y * sh_function * cosine_term);
+					coeffs[k].z += (albedo.z * sh_function * cosine_term);
+				}
+			}
+		}
+
+		float p = float(idx) / float(m_vertices.size()-1) * 100.0f;
+		std::cout << "Scene::projectShadowed(): "<< p << "%" << "\r";
+	}
+
+	float weight = 4.0f * math_pi;
+	float scale = weight / m_sampler->number_of_samples;
+	for (int i = 0; i < m_transCoeffs.size(); i++)
+	{
+		std::vector<vec3> &coeffs = m_transCoeffs[i];
+
+		for (int j = 0; j < m_numBands * m_numBands; j++)
+		{
+			coeffs[j].x *= scale;
+			coeffs[j].y *= scale;
+			coeffs[j].z *= scale;
+		}
+	}
+}
+
+bool Scene::visibility(int vertIdx, const vec3 &dir)
+{
+	bool visible = true;
+
+	vec3 &p = m_vertices.find(vertIdx)->second.pos;
+
+
+	for (std::map<uint, MeshFace>::iterator iterFaces=m_faces.begin(); iterFaces!=m_faces.end(); ++iterFaces)
+	{
+		MeshFace &f = iterFaces->second;
+
+		if ((vertIdx != f.a) && (vertIdx != f.b) && (vertIdx != f.c))
+		{
+			MeshVertex &va = m_vertices.find(f.a)->second;
+			MeshVertex &vb = m_vertices.find(f.b)->second;
+			MeshVertex &vc = m_vertices.find(f.c)->second;
+			
+		
+			visible = !rayIntersectsTriangle(p, dir, va.pos, vb.pos, vc.pos);
+
+			if (!visible)
+				break;
+		}
+	}
+	return(visible);
 }

@@ -165,6 +165,8 @@ float SphericalHarmonic(int l, int m, float theta, float phi);
 float K(int l, int m);
 int factorial(int n);
 
+bool rayIntersectsTriangle(const vec3 &p, const vec3 &d, const vec3 &v0, const vec3 &v1, const vec3 &v2);
+
 
 #endif
 

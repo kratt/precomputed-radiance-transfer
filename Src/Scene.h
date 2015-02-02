@@ -28,6 +28,7 @@ public:
     void renderObjectsDepth(const Transform &trans, const GlobalObjectParam &param);
 
 	void renderMesh(const Transform &trans, const GlobalObjectParam &param);
+	void renderSkyDome(const Transform &trans, const GlobalObjectParam &param);
 	void renderDebug(const Transform &trans, const GlobalObjectParam &param);
 
 	// PRT stuff
@@ -37,8 +38,10 @@ public:
 	void precomputeSHFunctions();
 	void projectLightFunction();
 	void projectUnshadowed();
+	void projectShadowed();
 
 	void lightProbeAccess(vec3 &color, vec3 direction);
+	bool visibility(int vertIdx, const vec3 &dir);
 	
 public:
     Light *m_light;
@@ -48,8 +51,10 @@ private:
 
     CameraManager *m_cameraManager;
 	VertexBufferObjectAttribs *m_vboMesh;
+	VertexBufferObjectAttribs *m_vboSkyDome;
 
 	Shader *m_shaderMesh;
+	Shader *m_shaderSkyDome;
     Shader *m_shaderNormal;
     Shader *m_shaderDepth;
 
