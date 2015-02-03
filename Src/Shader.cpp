@@ -8,18 +8,21 @@ Shader::Shader(Config conf)
   m_cFileName(NULL),
   m_eFileName(NULL),
   m_gFileName(NULL),
-  m_fFileName(NULL),  
+  m_fFileName(NULL), 
+  m_compFileName(NULL),  
   m_vOldDateTime(),
   m_cOldDateTime(),
   m_eOldDateTime(),
   m_gOldDateTime(),
   m_fOldDateTime(),
+  m_compOldDateTime(),
   m_id(0),
   m_vertProg(0),
   m_contProg(0),
   m_evalProg(0),
   m_geomProg(0),
   m_fragProg(0),
+  m_compProg(0),
   m_refreshTime(1000),
   m_firstUpdate(true)
 {  
@@ -41,17 +44,20 @@ Shader::Shader(const char *vFileName, const char *fFileName, Config conf)
   m_eFileName(NULL),
   m_gFileName(NULL),
   m_fFileName(NULL),  
+  m_compFileName(NULL),  
   m_vOldDateTime(),
   m_cOldDateTime(),
   m_eOldDateTime(),
   m_gOldDateTime(),
   m_fOldDateTime(),
+  m_compOldDateTime(),
   m_id(0),
   m_vertProg(0),
   m_contProg(0),
   m_evalProg(0),
   m_geomProg(0),
   m_fragProg(0),
+  m_compProg(0),
   m_refreshTime(1000),
   m_firstUpdate(true)
 {  
@@ -76,17 +82,20 @@ Shader::Shader(const char *vFileName, const char *gFileName, const char *fFileNa
   m_eFileName(NULL),
   m_gFileName(NULL),
   m_fFileName(NULL),  
+  m_compFileName(NULL),  
   m_vOldDateTime(),
   m_cOldDateTime(),
   m_eOldDateTime(),
   m_gOldDateTime(),
   m_fOldDateTime(),
+  m_compOldDateTime(),
   m_id(0),
   m_vertProg(0),
   m_contProg(0),
   m_evalProg(0),
   m_geomProg(0),
   m_fragProg(0),
+  m_compProg(0),
   m_refreshTime(1000),
   m_firstUpdate(true)
 {  
@@ -232,7 +241,28 @@ void Shader::attachFragmentShader(const char *fileName)
     }
 }
 
+void Shader::attachComputeShader(const char *fileName)
+{
+    if(fileName)
+    {
+        m_compFileName = fileName;
+        const char *source = readFile(fileName);
 
+        if(source)
+        {
+			m_compProg = compile(source, GL_COMPUTE_SHADER);
+            glAttachShader(m_id, m_compProg);
+
+            glLinkProgram(m_id);
+
+            qDebug() << "SHADER::attachComputeShader(): attached:  " << fileName;
+        }
+        else
+        {
+            qDebug() << "SHADER::attachComputeShader(): not found: " << fileName;
+        }
+    }
+}
 
 void Shader::attachDefault()
 {
@@ -366,6 +396,15 @@ void Shader::checkFile(const char *fileName, QDateTime &oldDateTime, unsigned in
                 qDebug()<< "SHADER::Fragment updated";
             }
 
+			if(type == GL_COMPUTE_SHADER)
+            {
+                glDetachShader(m_id, m_compProg);
+                glDeleteShader(m_compProg);
+
+                attachComputeShader(fileName);
+                qDebug()<< "SHADER::Compute updated";
+            }
+
             glLinkProgram(m_id);
         }
 
@@ -483,6 +522,13 @@ void Shader::cleanUp()
             m_fragProg = 0;
         }
 
+		if(m_compProg)
+        {
+            glDetachShader(m_id, m_compProg);
+            glDeleteShader(m_compProg);
+            m_compProg = 0;
+        }
+
         glDeleteProgram(m_id);
         m_id = 0;
     }
@@ -495,6 +541,7 @@ void Shader::autoUpdate()
     checkFile(m_eFileName, m_eOldDateTime, GL_TESS_EVALUATION_SHADER);
     checkFile(m_gFileName, m_gOldDateTime, GL_GEOMETRY_SHADER);
     checkFile(m_fFileName, m_fOldDateTime, GL_FRAGMENT_SHADER);
+	checkFile(m_compFileName, m_compOldDateTime, GL_COMPUTE_SHADER);
 
     m_firstUpdate = false;
 }

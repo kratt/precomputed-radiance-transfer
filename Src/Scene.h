@@ -13,6 +13,13 @@ class Shader;
 class CameraManager;
 class Object;
 
+struct MeshFaceData
+{
+	float vax, vay, vaz, vaw;
+	float vbx, vby, vbz, vbw;
+	float vcx, vcy, vcz, vcw;
+};
+
 class Scene
 {
 public:
@@ -42,12 +49,18 @@ public:
 
 	void lightProbeAccess(vec3 &color, vec3 direction);
 	bool visibility(int vertIdx, const vec3 &dir);
+
+	void initSSBOs();
 	
 public:
     Light *m_light;
 
 private:
 	void buildVBOMesh();
+	bool isOccluded(const vec3 &p, const vec3 &dir);
+
+	void debugIsOccluded();
+	bool intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3 v2, float &t);
 
     CameraManager *m_cameraManager;
 	VertexBufferObjectAttribs *m_vboMesh;
@@ -57,6 +70,8 @@ private:
 	Shader *m_shaderSkyDome;
     Shader *m_shaderNormal;
     Shader *m_shaderDepth;
+	Shader *m_shaderRayIntersection;
+
 
 	float *m_lightProbe;
 	float m_lightProbeWidth;
@@ -75,6 +90,10 @@ private:
 
 	std::vector<vec3> m_debugSampleDirs;
 	std::vector<vec3> m_debugSampleColor;
+
+	GLuint m_ssboFaceData;
+	GLuint m_ssboIntersectionResult;
+	int m_numLocalWorkGroups;
 };
 
 #endif

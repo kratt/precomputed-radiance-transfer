@@ -1,6 +1,3 @@
-//Author: Sören Pirk
-//Date: 22.01.2013
-
 #ifndef SHADER
 #define SHADER
 
@@ -24,6 +21,8 @@ class Shader : QObject
 		const char *m_gFileName;
 		const char *m_fFileName;
 
+		const char *m_compFileName;
+
 
         QTimer    *m_timer;
         QDateTime m_vOldDateTime;
@@ -31,6 +30,7 @@ class Shader : QObject
         QDateTime m_eOldDateTime;
         QDateTime m_gOldDateTime;
         QDateTime m_fOldDateTime;
+		QDateTime m_compOldDateTime;
         bool      m_firstUpdate;        
 
         unsigned int m_vertProg;
@@ -38,6 +38,7 @@ class Shader : QObject
         unsigned int m_evalProg;
         unsigned int m_geomProg;
         unsigned int m_fragProg;
+		unsigned int m_compProg;
         
         unsigned int m_refreshTime;
 
@@ -67,6 +68,7 @@ class Shader : QObject
         void attachEvaluationShader(const char *fileName);
         void attachGeometryShader(const char *fileName);
         void attachFragmentShader(const char *fileName);   
+		void attachComputeShader(const char *fileName);   
 
         void attachDefault();
         void attachShaderFromSource(const char *source, unsigned int type);

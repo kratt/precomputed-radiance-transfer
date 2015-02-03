@@ -17,8 +17,9 @@ Scene::Scene(CameraManager *camManager)
 : m_cameraManager(camManager),
   m_vboMesh(NULL),
   m_sampler(NULL),
-  m_numSamples(16),
-  m_numBands(2)
+  m_numSamples(2),
+  m_numBands(2),
+  m_numLocalWorkGroups(128)
 {
 	m_vboSkyDome = Mesh::sphere(10.0, 10);
 
@@ -26,17 +27,21 @@ Scene::Scene(CameraManager *camManager)
 	initLightProbe("Data/LightProbes/uffizi_probe.hdr");
 
 	loadObjData("Data/Objs/head.obj", m_faces, m_vertices, true);
+	initSSBOs();
 
 	generateSamples();
 	precomputeSHFunctions();
 	projectLightFunction();
-	projectUnshadowed();
+	//projectUnshadowed();
 
-	buildVBOMesh();
+	//buildVBOMesh();
+
+	debugIsOccluded();
 }
 
 Scene::~Scene()
 {
+
 }
 
 void Scene::initShaders()
@@ -52,6 +57,9 @@ void Scene::initShaders()
 
     m_shaderDepth = new Shader("Shader/Default.vert.glsl", "Shader/DefaultDepth.frag.glsl");
     m_shaderDepth->bindAttribLocations();
+
+	m_shaderRayIntersection = new Shader();
+	m_shaderRayIntersection->attachComputeShader("Shader/RayIntersection44.comp.glsl");
 }
 
 void Scene::initLightProbe(const char* fileName)
@@ -88,8 +96,6 @@ void Scene::initLightProbe(const char* fileName)
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, m_lightProbeWidth, m_lightProbeHeight, 0, GL_RGBA, GL_FLOAT, data);     
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); 
-
-
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 16.0f);   
 
     delete[] data;
@@ -99,6 +105,76 @@ void Scene::init()
 {
     m_light    = new Light(this, vec3(0.0f, 20.0f, 0.1f));
     initShaders();
+}
+
+void Scene::initSSBOs()
+{
+	int numFaces = m_faces.size();
+
+	glGenBuffers(1, &m_ssboFaceData);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboFaceData);
+	glBufferData(GL_SHADER_STORAGE_BUFFER , numFaces * sizeof(MeshFaceData), NULL, GL_STATIC_DRAW);
+
+	MeshFaceData *data = (MeshFaceData*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, numFaces * sizeof(MeshFaceData), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+	
+	for(std::map<uint, MeshFace>::iterator iterFaces=m_faces.begin(); iterFaces!=m_faces.end(); ++iterFaces)
+	{
+		MeshVertex &va = m_vertices.find(iterFaces->second.a)->second;
+		MeshVertex &vb = m_vertices.find(iterFaces->second.b)->second;
+		MeshVertex &vc = m_vertices.find(iterFaces->second.c)->second;
+
+		int curIdx = iterFaces->second.id;
+
+		//data[curIdx].vax = 11;
+		//data[curIdx].vay = 12;
+		//data[curIdx].vaz = 13;
+		//data[curIdx].vaw = curIdx;
+
+		//data[curIdx].vbx = 21;
+		//data[curIdx].vby = 22;
+		//data[curIdx].vbz = 23;
+		//data[curIdx].vbw = 1.0f;
+
+		//data[curIdx].vcx = 31;
+		//data[curIdx].vcy = 32;
+		//data[curIdx].vcz = 33;
+		//data[curIdx].vcw = 1.0f;
+
+		data[curIdx].vax = va.pos.x;
+		data[curIdx].vay = va.pos.y;
+		data[curIdx].vaz = va.pos.z;
+		data[curIdx].vaw = 1.0f;
+
+		data[curIdx].vbx = vb.pos.x;
+		data[curIdx].vby = vb.pos.y;
+		data[curIdx].vbz = vb.pos.z;
+		data[curIdx].vbw = 1.0f;
+
+		data[curIdx].vcx = vc.pos.x;
+		data[curIdx].vcy = vc.pos.y;
+		data[curIdx].vcz = vc.pos.z;
+		data[curIdx].vcw = 1.0f;
+	}
+
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+
+
+	// result buffer
+	glGenBuffers(1, &m_ssboIntersectionResult);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboIntersectionResult);
+	glBufferData(GL_SHADER_STORAGE_BUFFER , 4 * sizeof(float), NULL, GL_STATIC_DRAW);
+
+	float *resData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(float), GL_MAP_WRITE_BIT);
+	//float *resData = (float*) glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY);
+
+	resData[0] = 0.0f;
+	resData[1] = 0.0f;
+	resData[2] = 0.0f;
+	resData[3] = 0.0f;
+
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
 }
 
 void Scene::buildVBOMesh()
@@ -198,11 +274,13 @@ void Scene::buildVBOMesh()
 
 void Scene::renderWorld(const Transform &trans, const GlobalObjectParam &param)
 {
+	//debugIsOccluded();
+
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
 
     m_light->render(trans, param);
-	renderSkyDome(trans, param);
+	//renderSkyDome(trans, param);
 
 	glPopClientAttrib();
     glPopAttrib();
@@ -213,7 +291,7 @@ void Scene::renderObjects(const Transform &trans, const GlobalObjectParam &param
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
 	
-		renderMesh(trans, param);
+		//renderMesh(trans, param);
 
 	glPopClientAttrib();
     glPopAttrib();
@@ -440,7 +518,7 @@ void Scene::projectLightFunction()
 
 void Scene::projectUnshadowed()
 {
-	std::cout << "Scene::projectUnshadowed(): ";
+	
 	std::cout << std::setprecision(2) << std::fixed;
 
 	m_transCoeffs.clear();
@@ -482,7 +560,7 @@ void Scene::projectUnshadowed()
 		}
 
 		float p = float(idx) / float(m_vertices.size()-1) * 100.0f;
-		std::cout << p << "%" << "\r";
+		std::cout << "Scene::projectUnshadowed(): " << p << "%" << "\r";
 	}
 
 	float weight = 4.0f * math_pi;
@@ -570,7 +648,6 @@ bool Scene::visibility(int vertIdx, const vec3 &dir)
 
 	vec3 &p = m_vertices.find(vertIdx)->second.pos;
 
-
 	for (std::map<uint, MeshFace>::iterator iterFaces=m_faces.begin(); iterFaces!=m_faces.end(); ++iterFaces)
 	{
 		MeshFace &f = iterFaces->second;
@@ -581,12 +658,97 @@ bool Scene::visibility(int vertIdx, const vec3 &dir)
 			MeshVertex &vb = m_vertices.find(f.b)->second;
 			MeshVertex &vc = m_vertices.find(f.c)->second;
 			
-		
-			visible = !rayIntersectsTriangle(p, dir, va.pos, vb.pos, vc.pos);
+			float dist = 0.0f;
+			visible = !intersectTriangle(p, dir, va.pos, vb.pos, vc.pos, dist);
+			//visible = !rayIntersectsTriangle(p, dir, va.pos, vb.pos, vc.pos);
 
 			if (!visible)
 				break;
 		}
 	}
 	return(visible);
+}
+
+bool Scene::isOccluded(const vec3 &p, const vec3 &dir)
+{
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboFaceData);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_ssboIntersectionResult);
+
+	int num_groups_x = m_faces.size() / m_numLocalWorkGroups;
+
+	m_shaderRayIntersection->bind();
+	m_shaderRayIntersection->set3f("p", p);
+	m_shaderRayIntersection->set3f("dir", dir);
+
+		glDispatchCompute(num_groups_x, 1, 1);
+	m_shaderRayIntersection->release();
+
+	// grab result
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboIntersectionResult);
+	float *resData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(float), GL_MAP_WRITE_BIT);
+
+	//qDebug() << resData[0] << resData[1] << resData[2] << resData[3];
+	bool res = false;
+
+	if(resData[0] == 1)
+		res = true;
+
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+
+	return res;
+}
+
+void Scene::debugIsOccluded()
+{
+	int vertexIdx = 100;
+
+	vec3 p = m_vertices.find(vertexIdx)->second.pos;
+	vec3 dir = vec3(1.0f, 1.0f, 0.0f);
+
+	for(int i=0; i<10; ++i)
+	{
+		Sample& sample = m_sampler->samples[i];
+
+		vec3 dir = sample.cartesian_coord;
+
+		bool s0 = visibility(vertexIdx, dir);
+		bool s1 = isOccluded(p, dir);
+
+		qDebug() << "visibility:" << s0 << "isOccluded:" << !s1;	
+	}
+
+}
+
+bool Scene::intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3 v2, float &t)
+{
+	float eps = 0.000000001f;
+
+	vec3 e1 = v1 - v0;
+	vec3 e2 = v2 - v0;
+
+	vec3 p = cross(rayDir, e2);
+	float a = dot(e1, p);
+
+	if(a > -eps && a < eps)
+	{
+		return false;
+	}
+
+	float f = 1.0f / a;
+	vec3 s = rayStart - v0;
+	float u = f * dot(s,p);
+
+	if(u < 0.0f || u > 1.0f)
+		return false;
+
+	vec3 q = cross(s, e1);
+	float v = f * dot(rayDir, q);
+
+	if(v < 0.0f || u+v > 1.0f)
+		return false;
+
+	t = f * dot(e2, q);
+
+	return true;
 }
