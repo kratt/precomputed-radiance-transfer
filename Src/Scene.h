@@ -49,6 +49,8 @@ public:
 
 	void lightProbeAccess(vec3 &color, vec3 direction);
 	bool visibility(int vertIdx, const vec3 &dir);
+	bool visibility(const vec3 &rayOrigin, const vec3 &dir, float &dist);
+	bool visibilityGPU(const vec3 &p, const vec3 &dir, float& dist);
 
 	void initSSBOs();
 	
@@ -57,7 +59,7 @@ public:
 
 private:
 	void buildVBOMesh();
-	bool isOccluded(const vec3 &p, const vec3 &dir);
+	void ambientOcclusion();
 
 	void debugIsOccluded();
 	bool intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3 v2, float &t);
@@ -88,11 +90,16 @@ private:
 	int m_numSamples;
 	int m_numBands;
 
+	vec3 m_debugRayOrigin;
+
 	std::vector<vec3> m_debugSampleDirs;
 	std::vector<vec3> m_debugSampleColor;
+	std::vector<vec3> m_debugIntersectionPoints;
+	std::vector<float> m_debugDistToIntersections;
 
 	GLuint m_ssboFaceData;
 	GLuint m_ssboIntersectionResult;
+	GLuint m_atomicBufferHitCounter;
 	int m_numLocalWorkGroups;
 };
 

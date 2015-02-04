@@ -50,6 +50,8 @@ struct MeshVertex
 	vec3 normal;
 	vec3 texCoords;
 	vec3 prt;
+	
+	float occlusion;
 
 	uint id;
 	std::vector<uint> faceIds;
@@ -165,7 +167,7 @@ float SphericalHarmonic(int l, int m, float theta, float phi);
 float K(int l, int m);
 int factorial(int n);
 
-bool rayIntersectsTriangle(const vec3 &p, const vec3 &d, const vec3 &v0, const vec3 &v1, const vec3 &v2);
+bool rayIntersectsTriangle(const vec3 &p, const vec3 &d, const vec3 &v0, const vec3 &v1, const vec3 &v2, float &dist);
 
 
 #endif

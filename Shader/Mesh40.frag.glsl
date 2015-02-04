@@ -61,5 +61,6 @@ void main()
    
    vec3 finalColor = mix(color, prtColor, 1.0f);
 
-   gl_FragColor = vec4(finalColor.xyz, 1);	
+   float occ = (1.0-VertColor.w) ;
+   gl_FragColor = vec4(occ, occ, occ, 1);	
 }

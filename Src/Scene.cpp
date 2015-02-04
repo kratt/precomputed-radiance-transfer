@@ -12,31 +12,33 @@
 
 #include <iostream>
 #include <iomanip>
+#include <algorithm>
 
 Scene::Scene(CameraManager *camManager)
 : m_cameraManager(camManager),
   m_vboMesh(NULL),
   m_sampler(NULL),
-  m_numSamples(2),
+  m_numSamples(16),
   m_numBands(2),
-  m_numLocalWorkGroups(128)
+  m_numLocalWorkGroups(256)
 {
 	m_vboSkyDome = Mesh::sphere(10.0, 10);
 
     init();   
 	initLightProbe("Data/LightProbes/uffizi_probe.hdr");
 
-	loadObjData("Data/Objs/head.obj", m_faces, m_vertices, true);
+	loadObjData("Data/Objs/bunny.obj", m_faces, m_vertices, true);
 	initSSBOs();
 
 	generateSamples();
-	precomputeSHFunctions();
-	projectLightFunction();
+	//precomputeSHFunctions();
+	//projectLightFunction();
 	//projectUnshadowed();
 
-	//buildVBOMesh();
+	ambientOcclusion();
+	buildVBOMesh();
 
-	debugIsOccluded();
+	//debugIsOccluded();
 }
 
 Scene::~Scene()
@@ -125,21 +127,6 @@ void Scene::initSSBOs()
 
 		int curIdx = iterFaces->second.id;
 
-		//data[curIdx].vax = 11;
-		//data[curIdx].vay = 12;
-		//data[curIdx].vaz = 13;
-		//data[curIdx].vaw = curIdx;
-
-		//data[curIdx].vbx = 21;
-		//data[curIdx].vby = 22;
-		//data[curIdx].vbz = 23;
-		//data[curIdx].vbw = 1.0f;
-
-		//data[curIdx].vcx = 31;
-		//data[curIdx].vcy = 32;
-		//data[curIdx].vcz = 33;
-		//data[curIdx].vcw = 1.0f;
-
 		data[curIdx].vax = va.pos.x;
 		data[curIdx].vay = va.pos.y;
 		data[curIdx].vaz = va.pos.z;
@@ -163,9 +150,9 @@ void Scene::initSSBOs()
 	// result buffer
 	glGenBuffers(1, &m_ssboIntersectionResult);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboIntersectionResult);
-	glBufferData(GL_SHADER_STORAGE_BUFFER , 4 * sizeof(float), NULL, GL_STATIC_DRAW);
+	glBufferData(GL_SHADER_STORAGE_BUFFER , 8 * sizeof(float), NULL, GL_STATIC_DRAW);
 
-	float *resData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(float), GL_MAP_WRITE_BIT);
+	float *resData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 8 * sizeof(float), GL_MAP_WRITE_BIT);
 	//float *resData = (float*) glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY);
 
 	resData[0] = 0.0f;
@@ -173,8 +160,25 @@ void Scene::initSSBOs()
 	resData[2] = 0.0f;
 	resData[3] = 0.0f;
 
+	resData[4] = 0.0f;
+	resData[5] = 0.0f;
+	resData[6] = 0.0f;
+	resData[7] = 0.0f;
+
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+
+
+	// init counter
+	glGenBuffers(1, &m_atomicBufferHitCounter);
+	glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, m_atomicBufferHitCounter);
+	glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), NULL, GL_STATIC_DRAW);
+
+	GLuint* hitData = (GLuint*) glMapBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), GL_MAP_WRITE_BIT);
+	hitData[0] = 0;
+
+	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
+	glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
 }
 
 void Scene::buildVBOMesh()
@@ -183,23 +187,24 @@ void Scene::buildVBOMesh()
 	for (std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert, ++idx)
 	{
 		MeshVertex &vert = iterVert->second;
-		std::vector<vec3> &transCoeffs = m_transCoeffs[idx];
+		//std::vector<vec3> &transCoeffs = m_transCoeffs[idx];
 	
-		vec3 res = vec3(0.0f, 0.0f, 0.0f);
-		for(int j=0; j<m_numBands * m_numBands; ++j)
-		{
-			res.x += m_lightCoeffs[j].x * transCoeffs[j].x;
-			res.y += m_lightCoeffs[j].y * transCoeffs[j].y;
-			res.z += m_lightCoeffs[j].z * transCoeffs[j].z;
-		}
+		//vec3 res = vec3(0.0f, 0.0f, 0.0f);
+		//for(int j=0; j<m_numBands * m_numBands; ++j)
+		//{
+		//	res.x += m_lightCoeffs[j].x * transCoeffs[j].x;
+		//	res.y += m_lightCoeffs[j].y * transCoeffs[j].y;
+		//	res.z += m_lightCoeffs[j].z * transCoeffs[j].z;
+		//}
 
-		vert.prt = res;
+		vert.prt = 1.0f; //res;
 	}
 
 	std::vector<vec3> vertices;
     std::vector<vec3> normals;
 	std::vector<vec3> texCoords;
 	std::vector<vec3> prts;
+	std::vector<float> occlusions;
 
 	for(std::map<uint, MeshFace>::const_iterator iterFaces = m_faces.begin(); iterFaces != m_faces.end(); ++iterFaces)
 	{
@@ -224,6 +229,11 @@ void Scene::buildVBOMesh()
 		prts.push_back(va.prt);
 		prts.push_back(vb.prt);
 		prts.push_back(vc.prt);
+
+		occlusions.push_back(va.occlusion);
+		occlusions.push_back(vb.occlusion);
+		occlusions.push_back(vc.occlusion);
+
 	}
 
 	uint nrVertices = vertices.size();
@@ -237,6 +247,7 @@ void Scene::buildVBOMesh()
         vec3 n = normals[i];
 		vec3 uv = texCoords[i];
 		vec3 prt = prts[i];
+		float o = occlusions[i];
 
 		attrData[i].vx = p.x;
 		attrData[i].vy = p.y;
@@ -251,7 +262,7 @@ void Scene::buildVBOMesh()
 		attrData[i].cx = prt.x;
 		attrData[i].cy = prt.y;
 		attrData[i].cz = prt.z;
-		attrData[i].cw = 1.0f;
+		attrData[i].cw = o;
 			
 		attrData[i].tx = uv.x;
 		attrData[i].ty = uv.y;
@@ -291,7 +302,8 @@ void Scene::renderObjects(const Transform &trans, const GlobalObjectParam &param
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
 	
-		//renderMesh(trans, param);
+		renderDebug(trans, param);
+		renderMesh(trans, param);
 
 	glPopClientAttrib();
     glPopAttrib();
@@ -315,6 +327,7 @@ void Scene::renderMesh(const Transform &trans, const GlobalObjectParam &param)
 
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
+	glDisable(GL_CULL_FACE);
 
     m_shaderMesh->bind();
         m_shaderMesh->set3f("lightPos", param.lightPos);
@@ -383,16 +396,27 @@ void Scene::renderDebug(const Transform &trans, const GlobalObjectParam &param)
 
 	glEnableFixedFunction(trans);
 
-		glBegin(GL_LINES);
+		
 			for(int i=0; i<m_debugSampleDirs.size(); ++i)
 			{
-				vec3 color = m_debugSampleColor[i];
-				glColor3f(color.x, color.y, color.z);
-				vec3 dir = m_debugSampleDirs[i];
-				glVertex3f(0.0f, 0.0f, 0.0f);
-				glVertex3f(dir.x, dir.y, dir.z);
+				glBegin(GL_LINES);
+					vec3 color = m_debugSampleColor[i];
+					glColor3f(color.x, color.y, color.z);
+
+					vec3 dir = m_debugSampleDirs[i];
+					glVertex3f(m_debugRayOrigin.x, m_debugRayOrigin.y, m_debugRayOrigin.z);
+					glVertex3f(m_debugRayOrigin.x + dir.x, m_debugRayOrigin.y + dir.y, m_debugRayOrigin.z + dir.z);
+				glEnd();
+
+				float dist = m_debugDistToIntersections[i];
+				vec3 tmpDir = normalize(dir) * dist;
+				glColor3f(0.0f, 0.0f, 1.0f);
+				glPointSize(15.0f);
+				glBegin(GL_POINTS);
+					glVertex3f(m_debugRayOrigin.x + tmpDir.x, m_debugRayOrigin.y + tmpDir.y, m_debugRayOrigin.z + tmpDir.z);
+				glEnd();
 			}
-		glEnd();
+		
 	glDisableFixedFunction();
 
 	glPopClientAttrib();
@@ -580,7 +604,6 @@ void Scene::projectUnshadowed()
 
 void Scene::projectShadowed()
 {
-	
 	std::cout << std::setprecision(2) << std::fixed;
 
 	m_transCoeffs.clear();
@@ -669,10 +692,42 @@ bool Scene::visibility(int vertIdx, const vec3 &dir)
 	return(visible);
 }
 
-bool Scene::isOccluded(const vec3 &p, const vec3 &dir)
+bool Scene::visibility(const vec3 &rayOrigin, const vec3 &dir, float &dist)
 {
+	bool visible = true;
+
+	for (std::map<uint, MeshFace>::iterator iterFaces=m_faces.begin(); iterFaces!=m_faces.end(); ++iterFaces)
+	{
+		MeshFace &f = iterFaces->second;
+
+		MeshVertex &va = m_vertices.find(f.a)->second;
+		MeshVertex &vb = m_vertices.find(f.b)->second;
+		MeshVertex &vc = m_vertices.find(f.c)->second;
+
+		visible = !rayIntersectsTriangle(rayOrigin, dir, va.pos, vb.pos, vc.pos, dist);
+		
+		if (!visible)
+			break;
+	}
+
+	return(visible);
+}
+
+bool Scene::visibilityGPU(const vec3 &p, const vec3 &dir, float& dist)
+{
+	// first rest hit counter
+	glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, m_atomicBufferHitCounter);
+
+	GLuint *counter = (GLuint*) glMapBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint),  GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+	counter[0] = 0;
+
+	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
+	glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+
+
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboFaceData);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_ssboIntersectionResult);
+	glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 2, m_atomicBufferHitCounter);
 
 	int num_groups_x = m_faces.size() / m_numLocalWorkGroups;
 
@@ -681,41 +736,81 @@ bool Scene::isOccluded(const vec3 &p, const vec3 &dir)
 	m_shaderRayIntersection->set3f("dir", dir);
 
 		glDispatchCompute(num_groups_x, 1, 1);
+		glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT) ;
 	m_shaderRayIntersection->release();
 
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+	glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 2, 0);
+
 	// grab result
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboIntersectionResult);
-	float *resData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(float), GL_MAP_WRITE_BIT);
 
-	//qDebug() << resData[0] << resData[1] << resData[2] << resData[3];
-	bool res = false;
+	bool isVisible = true;
+	glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, m_atomicBufferHitCounter);
+		counter = (GLuint*)glMapBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), GL_MAP_READ_BIT);
 
-	if(resData[0] == 1)
-		res = true;
+	if(counter[0] > 0)
+		isVisible = false;
+	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
 
-	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+	//glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
 
-	return res;
+	//// grab result
+	//glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboIntersectionResult);
+	//float *resData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 8 * sizeof(float), GL_MAP_WRITE_BIT);
+
+	////qDebug() << "GPU: " << resData[0] << resData[1] << resData[2] << resData[3] <<" | " << resData[4] << resData[5] << resData[6] << resData[7];
+
+	//bool isVisible = true;
+
+	//if(resData[0] == 1 )// we have a hit
+	//{
+	//	dist = resData[1];
+	//	isVisible = false;
+	//}
+
+	//if(resData[4] == 1) // we have a hit
+	//{
+	//	dist = resData[5];
+	//	isVisible = false;
+	//}
+
+	//glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	//glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+
+	return isVisible;
 }
 
 void Scene::debugIsOccluded()
 {
-	int vertexIdx = 100;
-
-	vec3 p = m_vertices.find(vertexIdx)->second.pos;
+	m_debugRayOrigin = vec3(0.0f, 1.0f, 0.0);
 	vec3 dir = vec3(1.0f, 1.0f, 0.0f);
 
-	for(int i=0; i<10; ++i)
+	std::vector<vec3> dirs;
+	for(int i=0; i<m_sampler->number_of_samples; ++i)
 	{
 		Sample& sample = m_sampler->samples[i];
+		dirs.push_back(sample.cartesian_coord);
+	}
 
-		vec3 dir = sample.cartesian_coord;
+	std::random_shuffle ( dirs.begin(), dirs.end());
 
-		bool s0 = visibility(vertexIdx, dir);
-		bool s1 = isOccluded(p, dir);
+	for(int i=0; i<m_sampler->number_of_samples; ++i)
+	{
+		vec3 dir = dirs[i];
+		//qDebug() << "CPU: " << dir.x << dir.y << dir.z;
 
-		qDebug() << "visibility:" << s0 << "isOccluded:" << !s1;	
+		float dist = 0.0f;
+		//bool s1 = visibility(m_debugRayOrigin, dir, dist);
+		bool s1 = visibilityGPU(m_debugRayOrigin, dir, dist);
+		
+		vec3 col = vec3(0.0f, 1.0f, 0.0f);
+		if(s1)
+			col = vec3(1.0f, 0.0f, 0.0f);
+	
+		m_debugSampleDirs.push_back(normalize(dir)*2);
+		m_debugSampleColor.push_back(col);
+		m_debugDistToIntersections.push_back(dist);
 	}
 
 }
@@ -751,4 +846,30 @@ bool Scene::intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3
 	t = f * dot(e2, q);
 
 	return true;
+}
+
+void Scene::ambientOcclusion()
+{
+	int count = 0;
+	for(std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert, ++count)
+	{
+		MeshVertex &vert = iterVert->second;
+		vec3 p = vert.pos;
+
+		int numHits = 0;
+		for(int i=0; i<m_sampler->number_of_samples; ++i)
+		{
+			Sample& sample = m_sampler->samples[i];
+			vec3 dir = sample.cartesian_coord;
+			
+			float dist = 0.0f;
+			bool hit = visibilityGPU(p, dir, dist);
+
+			if(hit)
+				++numHits;
+		}
+
+		vert.occlusion = (float) numHits / (float)m_sampler->number_of_samples;
+		qDebug() << (float) count / (float) m_vertices.size();
+	}
 }
