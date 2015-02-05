@@ -5,6 +5,7 @@
 #extension GL_ARB_compute_shader : enable
 #extension GL_ARB_shader_storage_buffer_object : enable
 
+uniform float numVertices;
 
 struct MeshFace
 {
@@ -35,7 +36,7 @@ layout ( binding = 3 ) buffer HitBuff
 };
 
 
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 
 bool rayIntersectsTriangle(vec3 p, vec3 dir, MeshFace face, out float dist)
@@ -78,20 +79,21 @@ bool rayIntersectsTriangle(vec3 p, vec3 dir, MeshFace face, out float dist)
 
 void main()
 {	   
-	uint vertIdx      = gl_GlobalInvocationID.x;
-	uint faceIdx      = gl_GlobalInvocationID.y;
-	uint sampleDirIdx = gl_GlobalInvocationID.z;
+	uint vertIdx      = uint(vertices[gl_GlobalInvocationID.x].w);
+	uint faceIdx      = uint(faces[gl_GlobalInvocationID.y].va.w);
+	uint sampleDirIdx = uint(sampleDirs[gl_GlobalInvocationID.z].w);
 	
 	MeshFace curFace  = faces[faceIdx];
-	vec3 curVertex    = vertices[vertIdx].xyz;
-	vec3 curSampleDir = sampleDirs[sampleDirIdx].xyz;
+	vec4 curVertex    = vertices[vertIdx];
+	vec4 curSampleDir = sampleDirs[sampleDirIdx];
 	
 	
 	float dist = 0.0f;
-	bool hit = rayIntersectsTriangle(curVertex, curSampleDir, curFace, dist);
+	bool hit = rayIntersectsTriangle(curVertex.xyz, curSampleDir.xyz, curFace, dist);
 	
-	uint hitIdx = sampleDirIdx * gl_NumWorkGroups.x + vertIdx;
-		
+	uint realVertIdx = uint(curVertex.w);
+	uint hitIdx = uint(sampleDirIdx * numVertices + vertIdx);
+			
 	if(hit)	
 	{
 		hitBuffer[hitIdx] = dist;	

@@ -18,7 +18,7 @@ Scene::Scene(CameraManager *camManager)
 : m_cameraManager(camManager),
   m_vboMesh(NULL),
   m_sampler(NULL),
-  m_numSamples(16),
+  m_numSamples(33),
   m_numBands(2),
   m_numLocalWorkGroups(1)
 {
@@ -27,12 +27,20 @@ Scene::Scene(CameraManager *camManager)
     init();   
 	initLightProbe("Data/LightProbes/uffizi_probe.hdr");
 
-	loadObjData("Data/Objs/quad.obj", m_faces, m_vertices, true);
+	loadObjData("Data/Objs/quad_high.obj", m_faces, m_vertices, true);
 	
 	generateSamples();
 	initSSBOs();
+	
+	
+
+	GLint size;
+	glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &size);
+	//glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &size);
 
 	
+
+	qDebug() << "max size:" << size;
 	//precomputeSHFunctions();
 	//projectLightFunction();
 	//projectUnshadowed();
@@ -119,7 +127,8 @@ void Scene::initSSBOs()
 	glBufferData(GL_SHADER_STORAGE_BUFFER , numFaces * sizeof(MeshFaceData), NULL, GL_STATIC_DRAW);
 
 	MeshFaceData *data = (MeshFaceData*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, numFaces * sizeof(MeshFaceData), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-	
+	qDebug() <<numFaces * sizeof(MeshFaceData);
+
 	for(std::map<uint, MeshFace>::iterator iterFaces=m_faces.begin(); iterFaces!=m_faces.end(); ++iterFaces)
 	{
 		MeshVertex &va = m_vertices.find(iterFaces->second.a)->second;
@@ -131,17 +140,17 @@ void Scene::initSSBOs()
 		data[curIdx].vax = va.pos.x;
 		data[curIdx].vay = va.pos.y;
 		data[curIdx].vaz = va.pos.z;
-		data[curIdx].vaw = va.id;
+		data[curIdx].vaw = curIdx;
 
 		data[curIdx].vbx = vb.pos.x;
 		data[curIdx].vby = vb.pos.y;
 		data[curIdx].vbz = vb.pos.z;
-		data[curIdx].vbw = vb.id;
+		data[curIdx].vbw = curIdx;
 
 		data[curIdx].vcx = vc.pos.x;
 		data[curIdx].vcy = vc.pos.y;
 		data[curIdx].vcz = vc.pos.z;
-		data[curIdx].vcw = vc.id;
+		data[curIdx].vcw = curIdx;
 	}
 
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
@@ -167,14 +176,12 @@ void Scene::initSSBOs()
 		vertData[curIdx+1] = m_debugRayOrigin.y; //v.pos.y;
 		vertData[curIdx+2] = m_debugRayOrigin.z; //v.pos.z;
 		vertData[curIdx+3] = v.id;
-	
 	}
 
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
 
 	// init sample dirs ssbo
-
 	std::vector<vec3> sampleDirs;
 	for(int i=0; i<m_sampler->number_of_samples; ++i)
 	{
@@ -200,7 +207,7 @@ void Scene::initSSBOs()
 		sampleDirData[idx]   = dir.x;
 		sampleDirData[idx+1] = dir.y;
 		sampleDirData[idx+2] = dir.z;
-		sampleDirData[idx+3] = 0.0;
+		sampleDirData[idx+3] = i;
 	}
 
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
@@ -867,13 +874,14 @@ void Scene::fillHitBuffer()
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_ssboSampleDirs);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_ssboHitBuffer);
 
-	int num_groups_x = m_vertices.size(); // / m_numLocalWorkGroups;
-	int num_groups_y = m_faces.size();
+	int num_groups_x = m_vertices.size() / 32; // / m_numLocalWorkGroups;
+	int num_groups_y = m_faces.size() / 32;
 	int num_groups_z = m_sampler->number_of_samples;
 
 	qDebug() << "NumGroups: " << num_groups_x << num_groups_y << num_groups_z;
 
 	m_shaderRayIntersection->bind();
+		m_shaderRayIntersection->setf("numVertices",  m_vertices.size());
 		glDispatchCompute(num_groups_x, num_groups_y, num_groups_z);
 		//glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT) ;
 	m_shaderRayIntersection->release();
@@ -914,10 +922,13 @@ void Scene::debugIsOccluded()
 			col = vec3(1.0f, 0.0f, 0.0f);
 			dist = 0.0f;
 		}
-	
-		m_debugSampleDirs.push_back(normalize(dir)*2);
-		m_debugSampleColor.push_back(col);
-		m_debugDistToIntersections.push_back(dist);
+		//else
+		{
+		
+			m_debugSampleDirs.push_back(normalize(dir)*2);
+			m_debugSampleColor.push_back(col);
+			m_debugDistToIntersections.push_back(dist);
+		}
 	}
 
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
