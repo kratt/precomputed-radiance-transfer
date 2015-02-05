@@ -14,23 +14,29 @@ struct MeshFace
 };
 
 
-layout ( std140, binding = 0 ) buffer Data 
+layout ( std140, binding = 0 ) buffer VertBuff 
+{
+	vec4 vertices[];
+};
+
+layout ( std140, binding = 1 ) buffer FaceBuff 
 {
 	MeshFace faces[];
 };
 
-layout ( std140, binding = 1 ) buffer Res 
+layout ( std140, binding = 2 ) buffer SamplerDirBuff 
 {
-	vec4 result[];
+	vec4 sampleDirs[];
 };
 
-layout (binding = 2, offset = 0) uniform atomic_uint hitCounter;
+layout ( binding = 3 ) buffer HitBuff 
+{
+	float hitBuffer[];
+};
 
-layout (local_size_x = 1) in;
 
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-uniform vec3 p;
-uniform vec3 dir;
 
 bool rayIntersectsTriangle(vec3 p, vec3 dir, MeshFace face, out float dist)
 {
@@ -72,43 +78,24 @@ bool rayIntersectsTriangle(vec3 p, vec3 dir, MeshFace face, out float dist)
 
 void main()
 {	   
-	uint idx = gl_GlobalInvocationID.x;
+	uint vertIdx      = gl_GlobalInvocationID.x;
+	uint faceIdx      = gl_GlobalInvocationID.y;
+	uint sampleDirIdx = gl_GlobalInvocationID.z;
 	
-	MeshFace curFace = faces[idx];
+	MeshFace curFace  = faces[faceIdx];
+	vec3 curVertex    = vertices[vertIdx].xyz;
+	vec3 curSampleDir = sampleDirs[sampleDirIdx].xyz;
+	
 	
 	float dist = 0.0f;
-	bool hit = rayIntersectsTriangle(p, dir, curFace, dist);
+	bool hit = rayIntersectsTriangle(curVertex, curSampleDir, curFace, dist);
 	
-	if(hit)
-		atomicCounterIncrement(hitCounter);
-	
-	// if(hit && idx == 0)
-	// {
-		// result[1-idx].x = 1.0f;
-		// result[1-idx].y = dist;
-	// }
-	// else if(idx== 0)
-	// {
-		// result[1-idx].x = 0.0f;
-		// result[1-idx].y = 0.0f;
-	// }
-	
-	// if(hit && idx == 1)
-	// {
-	
-		// result[1-idx].x = 1.0f;
-		// result[1-idx].y = dist;
-	// }
-	// else if(idx == 1)
-	// {
-		// result[1-idx].x = 0.0f;
-		// result[1-idx].y = 0.0f;
-	// }
-	
-	// result[0].z = idx;
-	
-
-	//memoryBarrierShared();
+	uint hitIdx = sampleDirIdx * gl_NumWorkGroups.x + vertIdx;
+		
+	if(hit)	
+	{
+		hitBuffer[hitIdx] = dist;	
+	}
 }
 
 

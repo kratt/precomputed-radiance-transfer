@@ -60,6 +60,7 @@ public:
 private:
 	void buildVBOMesh();
 	void ambientOcclusion();
+	void fillHitBuffer();
 
 	void debugIsOccluded();
 	bool intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3 v2, float &t);
@@ -98,7 +99,10 @@ private:
 	std::vector<float> m_debugDistToIntersections;
 
 	GLuint m_ssboFaceData;
+	GLuint m_ssboVertexData;
+	GLuint m_ssboSampleDirs;
 	GLuint m_ssboIntersectionResult;
+	GLuint m_ssboHitBuffer;
 	GLuint m_atomicBufferHitCounter;
 	int m_numLocalWorkGroups;
 };

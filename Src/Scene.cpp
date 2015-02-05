@@ -20,25 +20,26 @@ Scene::Scene(CameraManager *camManager)
   m_sampler(NULL),
   m_numSamples(16),
   m_numBands(2),
-  m_numLocalWorkGroups(256)
+  m_numLocalWorkGroups(1)
 {
 	m_vboSkyDome = Mesh::sphere(10.0, 10);
 
     init();   
 	initLightProbe("Data/LightProbes/uffizi_probe.hdr");
 
-	loadObjData("Data/Objs/bunny.obj", m_faces, m_vertices, true);
+	loadObjData("Data/Objs/quad.obj", m_faces, m_vertices, true);
+	
+	generateSamples();
 	initSSBOs();
 
-	generateSamples();
+	
 	//precomputeSHFunctions();
 	//projectLightFunction();
 	//projectUnshadowed();
 
-	ambientOcclusion();
 	buildVBOMesh();
 
-	//debugIsOccluded();
+	debugIsOccluded();
 }
 
 Scene::~Scene()
@@ -130,23 +131,81 @@ void Scene::initSSBOs()
 		data[curIdx].vax = va.pos.x;
 		data[curIdx].vay = va.pos.y;
 		data[curIdx].vaz = va.pos.z;
-		data[curIdx].vaw = 1.0f;
+		data[curIdx].vaw = va.id;
 
 		data[curIdx].vbx = vb.pos.x;
 		data[curIdx].vby = vb.pos.y;
 		data[curIdx].vbz = vb.pos.z;
-		data[curIdx].vbw = 1.0f;
+		data[curIdx].vbw = vb.id;
 
 		data[curIdx].vcx = vc.pos.x;
 		data[curIdx].vcy = vc.pos.y;
 		data[curIdx].vcz = vc.pos.z;
-		data[curIdx].vcw = 1.0f;
+		data[curIdx].vcw = vc.id;
 	}
 
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
 
+	
+	// init vertex data
+	int numVertices = m_vertices.size();
 
+	glGenBuffers(1, &m_ssboVertexData);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboVertexData);
+	glBufferData(GL_SHADER_STORAGE_BUFFER , 4 * numVertices * sizeof(float), NULL, GL_STATIC_DRAW);
+
+	float *vertData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * numVertices * sizeof(float), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+	
+	m_debugRayOrigin = vec3(0.0f, 1.0f, 0.0);
+	int curIdx = 0;
+	for(std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert, curIdx+=4)
+	{
+		MeshVertex &v = iterVert->second;
+
+		vertData[curIdx]   = m_debugRayOrigin.x; //v.pos.x;
+		vertData[curIdx+1] = m_debugRayOrigin.y; //v.pos.y;
+		vertData[curIdx+2] = m_debugRayOrigin.z; //v.pos.z;
+		vertData[curIdx+3] = v.id;
+	
+	}
+
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+
+	// init sample dirs ssbo
+
+	std::vector<vec3> sampleDirs;
+	for(int i=0; i<m_sampler->number_of_samples; ++i)
+	{
+		Sample& sample = m_sampler->samples[i];
+		sampleDirs.push_back(sample.cartesian_coord);
+	}
+	//std::random_shuffle ( sampleDirs.begin(), sampleDirs.end());
+
+	int numSampleDirs = sampleDirs.size();
+
+	glGenBuffers(1, &m_ssboSampleDirs);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboSampleDirs);
+	glBufferData(GL_SHADER_STORAGE_BUFFER , 4 * numSampleDirs * sizeof(float), NULL, GL_STATIC_DRAW);
+
+	float *sampleDirData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * numSampleDirs * sizeof(float), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+	
+	for(int i=0; i<numSampleDirs; ++i)
+	{
+		vec3 dir = sampleDirs[i];
+
+		int idx = 4*i;
+
+		sampleDirData[idx]   = dir.x;
+		sampleDirData[idx+1] = dir.y;
+		sampleDirData[idx+2] = dir.z;
+		sampleDirData[idx+3] = 0.0;
+	}
+
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+	
 	// result buffer
 	glGenBuffers(1, &m_ssboIntersectionResult);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboIntersectionResult);
@@ -179,6 +238,25 @@ void Scene::initSSBOs()
 
 	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
 	glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+
+
+	// init hit buffer
+	int numSampleDir = m_sampler->number_of_samples;
+	int hitBufferSize = numVertices * numSampleDir;
+
+	glGenBuffers(1, &m_ssboHitBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboHitBuffer);
+	glBufferData(GL_SHADER_STORAGE_BUFFER , hitBufferSize * sizeof(float), NULL, GL_STATIC_DRAW);
+
+	float *hitBufferData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, hitBufferSize * sizeof(float), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+	
+	for(int i=0; i<hitBufferSize; ++i)
+	{
+		hitBufferData[i] = -1.0f;
+	}
+
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
 }
 
 void Scene::buildVBOMesh()
@@ -781,38 +859,69 @@ bool Scene::visibilityGPU(const vec3 &p, const vec3 &dir, float& dist)
 	return isVisible;
 }
 
+void Scene::fillHitBuffer()
+{
+	// fill hit buffer 
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboVertexData);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_ssboFaceData);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_ssboSampleDirs);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_ssboHitBuffer);
+
+	int num_groups_x = m_vertices.size(); // / m_numLocalWorkGroups;
+	int num_groups_y = m_faces.size();
+	int num_groups_z = m_sampler->number_of_samples;
+
+	qDebug() << "NumGroups: " << num_groups_x << num_groups_y << num_groups_z;
+
+	m_shaderRayIntersection->bind();
+		glDispatchCompute(num_groups_x, num_groups_y, num_groups_z);
+		//glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT) ;
+	m_shaderRayIntersection->release();
+
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+	glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 3, 0);
+}
+
 void Scene::debugIsOccluded()
 {
-	m_debugRayOrigin = vec3(0.0f, 1.0f, 0.0);
-	vec3 dir = vec3(1.0f, 1.0f, 0.0f);
+	fillHitBuffer();
 
-	std::vector<vec3> dirs;
-	for(int i=0; i<m_sampler->number_of_samples; ++i)
+	int hitBufferSize = m_vertices.size() * m_sampler->number_of_samples;
+
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboHitBuffer);
+
+	float *hitBufferData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, hitBufferSize *  sizeof(float), GL_MAP_READ_BIT);
+	
+	for(int i=0; i<hitBufferSize; ++i)
 	{
-		Sample& sample = m_sampler->samples[i];
-		dirs.push_back(sample.cartesian_coord);
+		//qDebug() << "hitBuffer: " << hitBufferData[i];
 	}
 
-	std::random_shuffle ( dirs.begin(), dirs.end());
 
 	for(int i=0; i<m_sampler->number_of_samples; ++i)
 	{
-		vec3 dir = dirs[i];
-		//qDebug() << "CPU: " << dir.x << dir.y << dir.z;
+		Sample &samp = m_sampler->samples[i];
+		vec3 dir = samp.cartesian_coord;
 
-		float dist = 0.0f;
-		//bool s1 = visibility(m_debugRayOrigin, dir, dist);
-		bool s1 = visibilityGPU(m_debugRayOrigin, dir, dist);
-		
+		int idx = i*m_vertices.size() + 0;
+		float dist = hitBufferData[idx];
+
 		vec3 col = vec3(0.0f, 1.0f, 0.0f);
-		if(s1)
+		if(dist < 0.0f)
+		{
 			col = vec3(1.0f, 0.0f, 0.0f);
+			dist = 0.0f;
+		}
 	
 		m_debugSampleDirs.push_back(normalize(dir)*2);
 		m_debugSampleColor.push_back(col);
 		m_debugDistToIntersections.push_back(dist);
 	}
 
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
 }
 
 bool Scene::intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3 v2, float &t)
