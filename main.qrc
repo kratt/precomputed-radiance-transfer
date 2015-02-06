@@ -21,5 +21,8 @@
         <file>Shader/ObjectDepth.vert.glsl</file>
         <file>Shader/ObjectLines.frag.glsl</file>
         <file>Shader/ObjectLines.vert.glsl</file>
+        <file>Shader/RayIntersection44.comp.glsl</file>
+        <file>Shader/SkyDome40.frag.glsl</file>
+        <file>Shader/SkyDome40.vert.glsl</file>
     </qresource> 
 </RCC>

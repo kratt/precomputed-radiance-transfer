@@ -1,6 +1,3 @@
-//Author: Sören Pirk
-//Date: 22.01.2013
-
 #ifndef SCENE
 #define SCENE
 
@@ -18,6 +15,7 @@ struct MeshFaceData
 	float vax, vay, vaz, vaw;
 	float vbx, vby, vbz, vbw;
 	float vcx, vcy, vcz, vcw;
+	float idx, idy, idz, idw;
 };
 
 class Scene
@@ -60,7 +58,7 @@ public:
 private:
 	void buildVBOMesh();
 	void ambientOcclusion();
-	void fillHitBuffer();
+	void fillHitBuffer(vec3 vertPos, int vertId);
 
 	void debugIsOccluded();
 	bool intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3 v2, float &t);

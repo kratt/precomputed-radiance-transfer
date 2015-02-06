@@ -59,8 +59,10 @@ void main()
    vec3 color = Uncharted2Tonemap(sampleLightProbe()*exposure);
    vec3 prtColor = Uncharted2Tonemap(abs(VertColor.xyz*exposure));
    
-   vec3 finalColor = mix(color, prtColor, 1.0f);
+   vec3 occ = vec3(1-VertColor.w) ;
+   vec3 finalColor = mix(color, prtColor, 0.0f);
 
-   float occ = (1.0-VertColor.w) ;
-   gl_FragColor = vec4(occ, occ, occ, 1);	
+  
+   
+   gl_FragColor = vec4(finalColor.xyz, 1.0);	
 }
