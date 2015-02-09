@@ -27,11 +27,20 @@ Scene::Scene(CameraManager *camManager)
     init();   
 	initLightProbe("Data/LightProbes/uffizi_probe.hdr");
 
-	loadObjData("Data/Objs/head.obj", m_faces, m_vertices, true);
+	loadObjData("Data/Objs/sibenik.obj", m_faces, m_vertices, true);
 	
 	generateSamples();
 	initSSBOs();
 	
+	//int l = 4;
+	//int m = 0;
+
+	//float theta = 10.0f;
+	//float phi = 0.0f;
+ //
+	//float tmp = 3.0/16.0 * sqrt(1.0/math_pi) * (35.0f * pow(cos(theta), 4) - 30.0f*cos(theta)*cos(theta) + 3);
+
+	//qDebug() << "SphericalHarmonic: " << SphericalHarmonic(l, m, theta, phi) << tmp;
 
 	//GLint size;
 	////glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &size); // max. count of local working groups
@@ -42,8 +51,9 @@ Scene::Scene(CameraManager *camManager)
 	precomputeSHFunctions();
 	projectLightFunction();
 	projectUnshadowed();
+	//projectShadowed();
 
-	ambientOcclusion();
+	//ambientOcclusion();
 	buildVBOMesh();
 //	debugIsOccluded();
 }
@@ -573,7 +583,8 @@ void Scene::projectLightFunction()
 		vec3& direction = m_sampler->samples[i].cartesian_coord;
 		vec3 color;
 		lightProbeAccess(color, direction);
-
+	
+		//color = vec3(1,1,1);
 		for (int j = 0; j < m_numBands * m_numBands; j++)
 		{
 			float sh_function = m_sampler->samples[i].sh_functions[j];
@@ -676,6 +687,11 @@ void Scene::projectShadowed()
 	for (std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert, ++idx)
 	{
 		MeshVertex &vert = iterVert->second;
+		fillHitBuffer(vert.pos, vert.id);
+
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboHitBuffer);
+		float *hitBufferData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, m_sampler->number_of_samples *  sizeof(float), GL_MAP_READ_BIT);
+
 		vec3 n = normalize(vert.normal);
 		vec3 albedo = vec3(0.5f, 0.5f, 0.5f);
 		
@@ -685,7 +701,7 @@ void Scene::projectShadowed()
 		{
 			Sample& sample = m_sampler->samples[j];
 
-			if(visibility(vert.id, sample.cartesian_coord))
+			if(hitBufferData[j] < 0.0f)
 			{
 				float cosine_term = max(0.0f, dot(n, sample.cartesian_coord));
 
@@ -699,6 +715,9 @@ void Scene::projectShadowed()
 				}
 			}
 		}
+
+		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
 
 		float p = float(idx) / float(m_vertices.size()-1) * 100.0f;
 		std::cout << "Scene::projectShadowed(): "<< p << "%" << "\r";

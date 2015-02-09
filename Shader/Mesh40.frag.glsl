@@ -54,14 +54,14 @@ void main()
 
    float d = max(0.0, dot(N, L));
    
-   float exposure = 10.0f;   
+   float exposure = 5.0f;   
    
    vec3 color = Uncharted2Tonemap(sampleLightProbe()*exposure);
-   vec3 prtColor = Uncharted2Tonemap(abs(VertColor.xyz*exposure));
+   vec3 prtColor = Uncharted2Tonemap((VertColor.zzz * exposure));
    
    vec3 occ = vec3(1-VertColor.w) ;
-   vec3 finalColor = mix(occ, color, 0.4f);
+   vec3 finalColor = mix(prtColor, color, 0.001f);
 
    
-   gl_FragColor = vec4(color.xyz, 1.0);	
+   gl_FragColor = vec4(finalColor.xyz, 1.0);	
 }

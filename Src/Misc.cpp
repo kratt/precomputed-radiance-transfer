@@ -654,7 +654,7 @@ float SphericalHarmonic(int l, int m, float theta, float phi)
 	else if (m < 0)
 		result = sqrt(2.0f) * K(l, m) * sin(-m*phi) * Legendre(l, -m, cos(theta));
 	else
-		result = K(l, m) * Legendre(l, 0, cos(theta));
+		result = K(l, 0) * Legendre(l, 0, cos(theta));
 	return(result);
 }
 
