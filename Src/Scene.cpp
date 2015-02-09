@@ -33,17 +33,17 @@ Scene::Scene(CameraManager *camManager)
 	initSSBOs();
 	
 
-	GLint size;
-	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &size); // max. count of local working groups
-	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &size); // max. count of local working groups
-	glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &size); // max. count of local invocation 
+	//GLint size;
+	////glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &size); // max. count of local working groups
+	////glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &size); // max. count of local working groups
+	//glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &size); // max. count of local invocation 
 
 
 	precomputeSHFunctions();
 	projectLightFunction();
 	projectUnshadowed();
 
-	//ambientOcclusion();
+	ambientOcclusion();
 	buildVBOMesh();
 //	debugIsOccluded();
 }
@@ -213,6 +213,24 @@ void Scene::initSSBOs()
 	for(int i=0; i<hitBufferSize; ++i)
 	{
 		hitBufferData[i] = -1.0f;
+	}
+
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+
+
+	// init hit buffer counter for every vertex
+	int hitCountBufferSize = m_vertices.size();
+
+	glGenBuffers(1, &m_ssboHitCountBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboHitCountBuffer);
+	glBufferData(GL_SHADER_STORAGE_BUFFER , hitCountBufferSize * sizeof(float), NULL, GL_STATIC_DRAW);
+
+	float *hitCountBufferData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, hitCountBufferSize * sizeof(float), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+	
+	for(int i=0; i<hitCountBufferSize; ++i)
+	{
+		hitCountBufferData[i] = 0.0f;
 	}
 
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
@@ -578,7 +596,6 @@ void Scene::projectLightFunction()
 
 void Scene::projectUnshadowed()
 {
-	
 	std::cout << std::setprecision(2) << std::fixed;
 
 	m_transCoeffs.clear();
@@ -622,6 +639,7 @@ void Scene::projectUnshadowed()
 		float p = float(idx) / float(m_vertices.size()-1) * 100.0f;
 		std::cout << "Scene::projectUnshadowed(): " << p << "%" << "\r";
 	}
+	std::cout << std::endl;
 
 	float weight = 4.0f * math_pi;
 	float scale = weight / m_sampler->number_of_samples;
@@ -829,23 +847,29 @@ void Scene::fillHitBuffer(vec3 vertPos, int vertId)
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboFaceData);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_ssboSampleDirs);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_ssboHitBuffer);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_ssboHitCountBuffer);
+	
+	int local_work_size_x = 39;
+	int local_work_size_y = 39;
+	int local_work_size_z = 1;
 
-	int num_groups_x = m_faces.size() / 1; // / m_numLocalWorkGroups;
-	int num_groups_y = m_sampler->number_of_samples / 1;
+	int num_groups_x = ceil(float(m_faces.size()) / float(local_work_size_x)); // / m_numLocalWorkGroups;
+	int num_groups_y = ceil(float(m_sampler->number_of_samples) / float(local_work_size_y) );
 	int num_groups_z = 1.0;
 
-	//qDebug() << "NumGroups: " << num_groups_x << num_groups_y << num_groups_z;
+//	qDebug() << "NumGroups: " << num_groups_x << num_groups_y << num_groups_z;
 
 	m_shaderRayIntersection->bind();
 	m_shaderRayIntersection->set3f("rayOrigin", vertPos);
 	m_shaderRayIntersection->seti("rayOriginID", vertId);
 		glDispatchCompute(num_groups_x, num_groups_y, num_groups_z);
-		glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT) ;
+		//glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT) ;
 	m_shaderRayIntersection->release();
 
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
 }
 
 void Scene::debugIsOccluded()
@@ -923,6 +947,17 @@ bool Scene::intersectTriangle(vec3 rayStart, vec3 rayDir, vec3 v0, vec3 v1, vec3
 
 void Scene::ambientOcclusion()
 {
+	std::cout << std::setprecision(2) << std::fixed;
+	//// first collect occlusion data
+	//for(std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert)
+	//{
+	//	MeshVertex &vert = iterVert->second;
+	//	fillHitBuffer(vert.pos, vert.id);
+	//}
+
+	//glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboHitCountBuffer);
+	//float *hitCountBufferData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, m_vertices.size() *  sizeof(float), GL_MAP_READ_BIT);
+
 	int count = 0;
 	for(std::map<uint, MeshVertex>::iterator iterVert=m_vertices.begin(); iterVert!=m_vertices.end(); ++iterVert, ++count)
 	{
@@ -930,10 +965,9 @@ void Scene::ambientOcclusion()
 		fillHitBuffer(vert.pos, vert.id);
 
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER , m_ssboHitBuffer);
-		int hitBufferSize = m_sampler->number_of_samples;
-		float *hitBufferData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, hitBufferSize *  sizeof(float), GL_MAP_READ_BIT);
+		float *hitBufferData = (float*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, m_sampler->number_of_samples *  sizeof(float), GL_MAP_READ_BIT);
 
-		int numHits = 0;
+		int numHits = 0; //hitCountBufferData[vert.id];
 		for(int i=0; i<m_sampler->number_of_samples; ++i)
 		{
 			float dist = hitBufferData[i];
@@ -941,10 +975,16 @@ void Scene::ambientOcclusion()
 				++numHits;
 		}
 
-		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-		glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
+		float p = float(count) / float(m_vertices.size()-1) * 100.0f;
+		std::cout << "Scene::ambientOcclusion(): " << p << "%" << "\r";
 
 		vert.occlusion = (float) numHits / (float)m_sampler->number_of_samples;
 		//qDebug() << vert.occlusion;
+	
+		//if(vert.id == 10)
+	//	qDebug() << vert.id <<  "occ: " << numHits;
+		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER , 0);
 	}
+
 }

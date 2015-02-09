@@ -714,11 +714,11 @@ void loadObjData(const char *fileName, std::map<uint, MeshFace> &faces, std::map
 		} 
 
 		uint faceID = 0;
-		for(uint i=0; i<idxs.size(); i+=3)
+		for(uint j=0; j<idxs.size(); j+=3)
 		{
-			uint a = idxs[i];
-			uint b = idxs[i+1];
-			uint c = idxs[i+2];
+			uint a = idxs[j];
+			uint b = idxs[j+1];
+			uint c = idxs[j+2];
 
 			MeshFace face;
 
@@ -727,7 +727,7 @@ void loadObjData(const char *fileName, std::map<uint, MeshFace> &faces, std::map
 			face.b = b;
 			face.c = c;
 
-			vec3 n = tmpNormals[i]; // normal at i, i+1 and i+2 should be the same (triangle lies in a plane)
+			vec3 n = tmpNormals[j]; // normal at i, i+1 and i+2 should be the same (triangle lies in a plane)
 			face.n = n;
 
 			faces.insert(std::pair<uint, MeshFace>(face.id, face));
@@ -738,9 +738,9 @@ void loadObjData(const char *fileName, std::map<uint, MeshFace> &faces, std::map
 			{
 				MeshVertex vert;
 				vert.id  = a;
-				vert.pos = tmpVertices[i]; 
-				vert.normal = tmpNormals[i];
-				vert.texCoords = tmpTexCoords[i];
+				vert.pos = tmpVertices[j]; 
+				vert.normal = tmpNormals[j];
+				vert.texCoords = tmpTexCoords[j];
 				vert.faceIds.push_back(faceID);
 				vertices.insert(std::pair<uint, MeshVertex>(a, vert));
 			}
@@ -754,9 +754,9 @@ void loadObjData(const char *fileName, std::map<uint, MeshFace> &faces, std::map
 			{
 				MeshVertex vert;
 				vert.id  = b;
-				vert.pos = tmpVertices[i+1]; 
-				vert.normal = tmpNormals[i+1];
-				vert.texCoords = tmpTexCoords[i+1];
+				vert.pos = tmpVertices[j+1]; 
+				vert.normal = tmpNormals[j+1];
+				vert.texCoords = tmpTexCoords[j+1];
 				vert.faceIds.push_back(faceID);
 				vertices.insert(std::pair<uint, MeshVertex>(b, vert));
 			}
@@ -771,9 +771,9 @@ void loadObjData(const char *fileName, std::map<uint, MeshFace> &faces, std::map
 			{
 				MeshVertex vert;
 				vert.id  = c;
-				vert.pos = tmpVertices[i+2]; 
-				vert.normal = tmpNormals[i+2];
-				vert.texCoords = tmpTexCoords[i+2];
+				vert.pos = tmpVertices[j+2]; 
+				vert.normal = tmpNormals[j+2];
+				vert.texCoords = tmpTexCoords[j+2];
 				vert.faceIds.push_back(faceID);
 				vertices.insert(std::pair<uint, MeshVertex>(c, vert));
 			}
@@ -785,6 +785,22 @@ void loadObjData(const char *fileName, std::map<uint, MeshFace> &faces, std::map
 			++faceID;
 		}
 	}
+
+	
+
+	//for(std::map<uint, MeshVertex>::iterator iterVertA = vertices.begin(); iterVertA != vertices.end(); ++iterVertA)
+	//{
+	//	for(std::map<uint, MeshVertex>::iterator iterVertB = vertices.begin(); iterVertB != vertices.end(); ++iterVertB)
+	//	{
+	//		if(iterVertA->second.id != iterVertB->second.id)
+	//		{
+	//			if(length(iterVertA->second.pos - iterVertB->second.pos) < 0.00001f)
+	//			{
+	//				qDebug() << iterVertA->second.id << "fail";
+	//			}
+	//		}
+	//	}
+	//}
 
 
 	// set center of faces

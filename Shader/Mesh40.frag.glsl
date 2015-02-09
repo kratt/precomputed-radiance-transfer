@@ -14,7 +14,8 @@ const float PI = 3.14159265359f;
 
 vec3 sampleLightProbe()
 {
-	vec3 dir = normalize(reflect(normalize(-camPos), normalize(VertNormal.xyz))); //normalize(VertPosition.xyz);
+	vec3 viewDir = normalize(VertPosition.xyz - camPos);
+	vec3 dir = normalize(reflect(viewDir, normalize(VertNormal.xyz))); //normalize(VertPosition.xyz);
 	
 	float d = sqrt(dir.x * dir.x + dir.y * dir.y);
 	float r = (d == 0) ? 0.0f : (1.0f/PI/2.0f) * acos(dir.z) / d;
@@ -32,7 +33,6 @@ vec3 tonMapping(vec3 color)
 	float z = color.z / (1.0f + color.z);
 	
 	return vec3(x, y, z);
-
 }
 
 vec3 Uncharted2Tonemap(vec3 x)
@@ -60,9 +60,8 @@ void main()
    vec3 prtColor = Uncharted2Tonemap(abs(VertColor.xyz*exposure));
    
    vec3 occ = vec3(1-VertColor.w) ;
-   vec3 finalColor = mix(color, prtColor, 0.0f);
+   vec3 finalColor = mix(occ, color, 0.4f);
 
-  
    
-   gl_FragColor = vec4(finalColor.xyz, 1.0);	
+   gl_FragColor = vec4(color.xyz, 1.0);	
 }

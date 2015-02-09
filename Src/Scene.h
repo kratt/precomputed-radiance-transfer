@@ -101,6 +101,7 @@ private:
 	GLuint m_ssboSampleDirs;
 	GLuint m_ssboIntersectionResult;
 	GLuint m_ssboHitBuffer;
+	GLuint m_ssboHitCountBuffer;
 	GLuint m_atomicBufferHitCounter;
 	int m_numLocalWorkGroups;
 };

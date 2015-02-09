@@ -31,8 +31,13 @@ layout ( binding = 2 ) buffer HitBuff
 	float hitBuffer[];
 };
 
+layout ( binding = 3 ) buffer HitCountBuff 
+{
+	float hitCountBuffer[];
+};
 
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout (local_size_x = 39, local_size_y = 39, local_size_z = 1) in;
 
 
 bool rayIntersectsTriangle(vec3 p, vec3 dir, MeshFace face, out float dist)
@@ -76,17 +81,23 @@ bool rayIntersectsTriangle(vec3 p, vec3 dir, MeshFace face, out float dist)
 void main()
 {	   
 	MeshFace face = faces[gl_GlobalInvocationID.x];
-	
+		
 	uint idxA = uint(face.va.w);
 	uint idxB = uint(face.vb.w);
 	uint idxC = uint(face.vc.w);
 	uint faceIdx      = uint(face.ids.x);
 	
-	uint sampleDirIdx = gl_GlobalInvocationID.y; //uint(sampleDirs[gl_GlobalInvocationID.y].w);
+	uint sampleDirIdx = uint(sampleDirs[gl_GlobalInvocationID.y].w);
 	
 	vec4 curSampleDir = sampleDirs[sampleDirIdx];
+	vec3 va = face.va.xyz;
+	vec3 vb = face.vb.xyz;
+	vec3 vc = face.vc.xyz;
 	
-	if(rayOriginID == idxA || rayOriginID == idxB || rayOriginID == idxC)
+	float eps = 0.000001f;
+
+	if(rayOriginID == idxA || rayOriginID == idxB || rayOriginID == idxC ||
+	   length(rayOrigin-va) < eps || length(rayOrigin-vb) < eps || length(rayOrigin-vc) < eps)
 		return;
 	
 	float dist = 0.0f;
@@ -96,6 +107,7 @@ void main()
 						
 	if(hit)	
 	{
+		//hitCountBuffer[rayOriginID] += 1;
 		hitBuffer[hitIdx] = dist;	
 	}
 }

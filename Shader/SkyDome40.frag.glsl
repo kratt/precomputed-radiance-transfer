@@ -66,7 +66,7 @@ void main()
    
    
    vec3 color = sampleLightProbe();
-   vec3 finalColor = color; //Uncharted2Tonemap((color.xyz)*20);
+   vec3 finalColor = Uncharted2Tonemap((color.xyz)*10);
 
    gl_FragColor = vec4(finalColor.xyz, 1);	
 }
