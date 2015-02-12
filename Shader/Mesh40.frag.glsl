@@ -41,7 +41,8 @@ vec3 Uncharted2Tonemap(vec3 x)
 	float B = 0.50;
 	float C = 0.10;
 	float D = 0.20;
-	float E = 0.02;d
+	float E = 0.02;
+	float F = 0.3;
 	return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
 }
 
@@ -58,7 +59,7 @@ void main()
    vec3 prtColor = Uncharted2Tonemap((VertColor.zzz * exposure));
    
    vec3 occ = vec3(1-VertColor.w) ;
-   vec3 finalColor = mix(prtColor, color, 0.001f);
+   vec3 finalColor = mix(prtColor, color, 0.0f);
 
    
    gl_FragColor = vec4(finalColor.xyz, 1.0);	
