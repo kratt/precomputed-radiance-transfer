@@ -27,7 +27,7 @@ Scene::Scene(CameraManager *camManager)
     init();   
 	initLightProbe("Data/LightProbes/uffizi_probe.hdr");
 
-	loadObjData("Data/Objs/sibenik.obj", m_faces, m_vertices, true);
+	loadObjData("Data/Objs/head.obj", m_faces, m_vertices, true);
 	
 	generateSamples();
 	initSSBOs();
